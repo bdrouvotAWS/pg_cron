@@ -92,7 +92,7 @@ PG_FUNCTION_INFO_V1(cron_job_cache_invalidate);
 static MemoryContext CronJobContext = NULL;
 static HTAB *CronJobHash = NULL;
 static Oid CachedCronJobRelationId = InvalidOid;
-bool CronJobCacheValid = false;
+bool CronJobCacheAndEreportValid = false;
 char *CronHost = "localhost";
 
 
@@ -617,7 +617,7 @@ InvalidateJobCacheCallback(Datum argument, Oid relationId)
 	if (relationId == CachedCronJobRelationId ||
 		CachedCronJobRelationId == InvalidOid)
 	{
-		CronJobCacheValid = false;
+		CronJobCacheAndEreportValid = false;
 		CachedCronJobRelationId = InvalidOid;
 	}
 }

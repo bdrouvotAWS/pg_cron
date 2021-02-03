@@ -104,7 +104,7 @@ RefreshTaskHash(void)
 		task->isActive = job->active;
 	}
 
-	CronJobCacheValid = true;
+	CronJobCacheAndEreportValid = true;
 }
 
 

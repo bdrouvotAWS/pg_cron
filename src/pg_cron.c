@@ -159,8 +159,27 @@ static const int MaxWait = 1000; /* maximum time in ms that poll() can block */
 static bool RebootJobsScheduled = false;
 static int RunningTaskCount = 0;
 static int MaxRunningTasks = 0;
+static int CronLogMinMessages = WARNING;
 static bool UseBackgroundWorkers = false;
 
+static const struct config_enum_entry cron_message_level_options[] = {
+	{"debug5", DEBUG5, false},
+	{"debug4", DEBUG4, false},
+	{"debug3", DEBUG3, false},
+	{"debug2", DEBUG2, false},
+	{"debug1", DEBUG1, false},
+	{"debug", DEBUG2, true},
+	{"info", INFO, false},
+	{"notice", NOTICE, false},
+	{"warning", WARNING, false},
+	{"error", ERROR, false},
+	{"log", LOG, false},
+	{"fatal", FATAL, false},
+	{"panic", PANIC, false},
+	{NULL, 0, false}
+};
+
+static const char *cron_error_severity(int elevel);
 
 /*
  * _PG_init gets called when the extension is loaded.
@@ -257,6 +276,17 @@ _PG_init(void)
 			GUC_SUPERUSER_ONLY,
 			NULL, NULL, NULL);
 
+	DefineCustomEnumVariable(
+		"cron.log_min_messages",
+		gettext_noop("log_min_messages for the launcher bgworker."),
+		NULL,
+		&CronLogMinMessages,
+		WARNING,
+		cron_message_level_options,
+		PGC_SIGHUP,
+		GUC_SUPERUSER_ONLY,
+		NULL, NULL, NULL);
+
 	/* set up common data for all our workers */
 	worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 	worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
@@ -301,7 +331,7 @@ pg_cron_sigterm(SIGNAL_ARGS)
 static void
 pg_cron_sighup(SIGNAL_ARGS)
 {
-	CronJobCacheValid = false;
+	CronJobCacheAndEreportValid = false;
 
 	if (MyProc != NULL)
 	{
@@ -364,6 +394,60 @@ pg_cron_cmdTuples(char *msg)
 interpret_error:
 	ereport(LOG, (errmsg("could not interpret result from server: %s", msg)));
         return "";
+}
+
+/*
+ * cron_error_severity --- get string representing elevel
+ */
+static const char *
+cron_error_severity(int elevel)
+{
+	const char *elevel_char;
+
+	switch (elevel)
+	{
+		case DEBUG1:
+			elevel_char = "DEBUG1";
+			break;
+		case DEBUG2:
+			elevel_char = "DEBUG2";
+			break;
+		case DEBUG3:
+			elevel_char = "DEBUG3";
+			break;
+		case DEBUG4:
+			elevel_char = "DEBUG4";
+			break;
+		case DEBUG5:
+			elevel_char = "DEBUG5";
+			break;
+		case LOG:
+			elevel_char = "LOG";
+			break;
+		case INFO:
+			elevel_char = "INFO";
+			break;
+		case NOTICE:
+			elevel_char = "NOTICE";
+			break;
+		case WARNING:
+			elevel_char = "WARNING";
+			break;
+		case ERROR:
+			elevel_char = "ERROR";
+			break;
+		case FATAL:
+			elevel_char = "FATAL";
+			break;
+		case PANIC:
+			elevel_char = "PANIC";
+			break;
+		default:
+			elevel_char = "???";
+			break;
+	}
+
+	return elevel_char;
 }
 
 /*
@@ -521,6 +605,10 @@ PgCronLauncherMain(Datum arg)
 
 	ereport(LOG, (errmsg("pg_cron scheduler started")));
 
+	/* set the desired log_min_messages */
+	SetConfigOption("log_min_messages", cron_error_severity(CronLogMinMessages),
+										PGC_POSTMASTER, PGC_S_OVERRIDE);
+
 	MemoryContextSwitchTo(CronLoopContext);
 
 	while (!got_sigterm)
@@ -530,8 +618,13 @@ PgCronLauncherMain(Datum arg)
 
 		AcceptInvalidationMessages();
 
-		if (!CronJobCacheValid)
+		if (!CronJobCacheAndEreportValid)
 		{
+			/* set the desired log_min_messages */
+			ProcessConfigFile(PGC_SIGHUP);
+			SetConfigOption("log_min_messages", cron_error_severity(CronLogMinMessages),
+												PGC_POSTMASTER, PGC_S_OVERRIDE);
+			/* Refresh the task hash */
 			RefreshTaskHash();
 		}
 

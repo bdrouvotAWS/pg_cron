@@ -45,7 +45,7 @@ typedef struct CronJob
 
 /* global settings */
 extern char *CronHost;
-extern bool CronJobCacheValid;
+extern bool CronJobCacheAndEreportValid;
 
 
 /* functions for retrieving job metadata */
